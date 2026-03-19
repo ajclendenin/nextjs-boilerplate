@@ -1,0 +1,5 @@
+{
+  "/_not-found": "app/_not-found.js",
+  "/page": "app/page.js",
+  "/api/spotify/route": "app/api/spotify/route.js"
+}
