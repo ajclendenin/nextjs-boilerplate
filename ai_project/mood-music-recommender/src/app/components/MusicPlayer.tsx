@@ -19,20 +19,23 @@ export default function MusicPlayer({ tracks, currentTrackIndex, onTrackChange }
     );
   }
 
+  const albumImageUrl = currentTrack.album?.images?.[0]?.url || '/placeholder-album.png';
+  const albumName = currentTrack.album?.name || 'Unknown Album';
+
   return (
     <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
       <div className="flex items-center space-x-4 mb-4">
         <img
-          src={currentTrack.album.images[0]?.url || '/placeholder-album.png'}
-          alt={currentTrack.album.name}
+          src={albumImageUrl}
+          alt={albumName}
           className="w-20 h-20 rounded-lg object-cover"
         />
         <div className="flex-1">
           <h3 className="font-bold text-lg">{currentTrack.name}</h3>
           <p className="text-gray-600">
-            {currentTrack.artists.map(artist => artist.name).join(', ')}
+            {currentTrack.artists?.map(artist => artist.name).join(', ') || 'Unknown Artist'}
           </p>
-          <p className="text-gray-500 text-sm">{currentTrack.album.name}</p>
+          <p className="text-gray-500 text-sm">{albumName}</p>
         </div>
       </div>
 
