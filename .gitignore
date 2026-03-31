@@ -2,7 +2,7 @@
 
 # dependencies
 /node_modules
-mood-music-recommender/node_modules
+ai_project/mood-music-recommender/node_modules
 /.pnp
 .pnp.*
 .yarn/*
