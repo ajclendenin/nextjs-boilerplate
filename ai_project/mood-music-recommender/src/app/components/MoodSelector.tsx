@@ -60,19 +60,15 @@ const moodConfigs: MoodConfig[] = [
 
 export default function MoodSelector({ onMoodSelect, selectedMood }: MoodSelectorProps) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-6">
+    <div className="mood-grid p-2">
       {moodConfigs.map((config) => (
         <button
           key={config.mood}
           onClick={() => onMoodSelect(config.mood)}
-          className={`p-6 rounded-lg border-2 transition-all hover:scale-105 ${
-            selectedMood === config.mood
-              ? 'border-blue-500 bg-blue-50'
-              : 'border-gray-200 hover:border-gray-300'
-          }`}
+          className={`mood-card ${selectedMood === config.mood ? 'mood-card-active' : ''}`}
         >
-          <div className="text-4xl mb-2">{config.emoji}</div>
-          <div className="font-semibold text-lg">{config.label}</div>
+          <div className="emoji">{config.emoji}</div>
+          <div className="label">{config.label}</div>
         </button>
       ))}
     </div>

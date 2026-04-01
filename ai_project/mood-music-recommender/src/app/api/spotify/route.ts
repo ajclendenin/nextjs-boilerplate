@@ -81,10 +81,29 @@ export async function GET(request: NextRequest) {
       .map((track: any) => {
         // Handle nested Rapid API structure
         const trackData = track.data || track;
+
+        const artistsRaw = trackData.artists?.items || trackData.artists || [];
+        const artists = Array.isArray(artistsRaw)
+          ? artistsRaw
+              .map((artist: any) => {
+                if (!artist) return null;
+                if (typeof artist === 'string') return artist;
+                return (
+                  artist.name ||
+                  artist.profile?.name ||
+                  artist.artist?.name ||
+                  artist.title ||
+                  null
+                );
+              })
+              .filter(Boolean)
+              .map((name: string) => ({ name }))
+          : [];
+
         return {
           id: trackData.id,
           name: trackData.name,
-          artists: trackData.artists?.items || trackData.artists || [],
+          artists,
           album: {
             name: trackData.albumOfTrack?.name || trackData.album?.name || 'Unknown Album',
             images: trackData.albumOfTrack?.coverArt?.sources || trackData.album?.images || [{ url: '/placeholder-album.png' }],

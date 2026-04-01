@@ -35,15 +35,11 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-100 to-blue-100">
-      <div className="container mx-auto px-4 py-8">
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
-            Mood Music Recommender
-          </h1>
-          <p className="text-gray-600">
-            Select your mood and discover the perfect soundtrack
-          </p>
+    <div className="app-shell">
+      <div className="app-card">
+        <header className="app-header">
+          <h1>Mood Music Recommender</h1>
+          <p>Select your mood and discover the perfect soundtrack</p>
         </header>
 
         <main>
@@ -59,25 +55,25 @@ export default function Home() {
               <div className="text-center mb-6">
                 <button
                   onClick={() => setSelectedMood(null)}
-                  className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 transition-colors"
+                  className="control-btn"
                 >
                   ← Change Mood
                 </button>
               </div>
 
               {loading && (
-                <div className="text-center p-8">
+                <div className="loading-state">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-                  <p className="mt-4 text-gray-600">Finding the perfect tracks...</p>
+                  <p>Finding the perfect tracks...</p>
                 </div>
               )}
 
               {error && (
-                <div className="text-center p-8">
-                  <p className="text-red-500 mb-4">{error}</p>
+                <div className="error-state">
+                  <p>{error}</p>
                   <button
                     onClick={() => handleMoodSelect(selectedMood)}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    className="control-btn"
                   >
                     Try Again
                   </button>
