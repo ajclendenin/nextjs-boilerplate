@@ -1,5 +1,6 @@
-'use client';
+ 'use client';
 
+import { useState } from 'react';
 import { Mood, MoodConfig } from '../../types';
 
 interface MoodSelectorProps {
@@ -59,18 +60,56 @@ const moodConfigs: MoodConfig[] = [
 ];
 
 export default function MoodSelector({ onMoodSelect, selectedMood }: MoodSelectorProps) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = value.trim().toLowerCase();
+    if (!v) {
+      setError('Please enter a mood');
+      return;
+    }
+
+    // If the typed mood matches one of the known moods, use that canonical value.
+    const match = moodConfigs.find((c) => c.mood === v || c.label.toLowerCase() === v);
+    const moodToSend = (match ? match.mood : (v as Mood));
+
+    setError(null);
+    onMoodSelect(moodToSend);
+  };
+
   return (
-    <div className="mood-grid p-2">
-      {moodConfigs.map((config) => (
+    <form onSubmit={handleSubmit} className="mood-input p-2">
+      <label htmlFor="mood-input" className="sr-only">
+        Enter mood
+      </label>
+      <div className="flex gap-2 items-center">
+        <input
+          id="mood-input"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Type a mood (e.g. happy, relaxed)"
+          className="w-full rounded-md border px-3 py-2"
+        />
         <button
-          key={config.mood}
-          onClick={() => onMoodSelect(config.mood)}
-          className={`mood-card ${selectedMood === config.mood ? 'mood-card-active' : ''}`}
+          type="submit"
+          className="rounded-md bg-blue-600 text-white px-3 py-2 disabled:opacity-50"
+          disabled={value.trim() === ''}
         >
-          <div className="emoji">{config.emoji}</div>
-          <div className="label">{config.label}</div>
+          Set
         </button>
-      ))}
-    </div>
+      </div>
+
+      {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
+
+      {selectedMood && (
+        <p className="text-sm text-gray-600 mt-2">Selected mood: {selectedMood}</p>
+      )}
+
+      <p className="text-xs text-gray-500 mt-3">
+        Suggestions: {moodConfigs.map((c) => c.label).join(', ')}
+      </p>
+    </form>
   );
 }

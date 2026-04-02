@@ -1,4 +1,4 @@
-// File: C:\Users\wvumi\nextjs-boilerplate\ai_project\mood-music-recommender\src\app\api\spotify\route.ts
+// File: /Users/elizabethcarrsco/Desktop/MusicApp/nextjs-boilerplate/ai_project/mood-music-recommender/src/app/api/spotify/route.ts
 import * as entry from '../../../../../src/app/api/spotify/route.js'
 import type { NextRequest } from 'next/server.js'
 
