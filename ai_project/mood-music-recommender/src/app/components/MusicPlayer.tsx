@@ -38,11 +38,8 @@ export default function MusicPlayer({ tracks, currentTrackIndex, onTrackChange }
         if (!artist) return;
         if (typeof artist === 'string') {
           artistNames.push(artist);
-        } else if (typeof artist === 'object') {
-          if (artist.name) artistNames.push(artist.name);
-          else if (artist.profile?.name) artistNames.push(artist.profile.name);
-          else if (artist.artist?.name) artistNames.push(artist.artist.name);
-          else if (artist.title) artistNames.push(artist.title);
+        } else if (typeof artist === 'object' && artist.name) {
+          artistNames.push(artist.name);
         }
       });
     }
