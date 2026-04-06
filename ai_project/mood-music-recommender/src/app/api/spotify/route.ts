@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Mood } from '../../../types';
+import { generateArtistSuggestions } from '../../../lib/aiRecommendations';
 
 const RAPID_API_KEY = process.env.RAPID_API_KEY;
 const RAPID_API_HOST = 'spotify23.p.rapidapi.com';
 
-const moodConfigs: Record<Mood, { searchArtists: string[]; searchTerms: string }> = {
+// Fallback configs if AI generation fails
+const fallbackMoodConfigs: Record<Mood, { searchArtists: string[]; searchTerms: string }> = {
   happy: { searchArtists: ['Pharrell Williams', 'Katy Perry', 'Mark Ronson'], searchTerms: 'upbeat happy song' },
   sad: { searchArtists: ['Adele', 'Sam Smith', 'Billie Eilish'], searchTerms: 'sad emotional ballad' },
   energetic: { searchArtists: ['The Weeknd', 'Dua Lipa', 'Calvin Harris'], searchTerms: 'high energy dance' },
@@ -18,23 +20,36 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const mood = searchParams.get('mood') as Mood;
 
-    if (!mood || !moodConfigs[mood]) {
+    if (!mood || !fallbackMoodConfigs[mood]) {
       return NextResponse.json({ error: 'Invalid mood' }, { status: 400 });
     }
 
-    const config = moodConfigs[mood];
-    console.log('Mood config:', config);
-    console.log('RAPID_API_KEY present:', !!RAPID_API_KEY);
-
-    // Try multiple searches: first by artist, then by general term
-    let allTracks: any[] = [];
+    console.log(`Generating recommendations for mood: ${mood}`);
     
-    // Search by different artists and terms to get better results
-    const searchQueries = [
-      config.searchArtists[0],
-      config.searchArtists[1],
-      config.searchTerms,
-    ];
+    // Get AI-generated suggestions for diverse recommendations
+    const aiSuggestions = await generateArtistSuggestions(mood);
+    console.log('Generated suggestions:', aiSuggestions);
+
+    // Always use the generated suggestions (now with guaranteed randomization)
+    let searchQueries: string[] = [];
+    
+    if (aiSuggestions && aiSuggestions.artists.length > 0 && aiSuggestions.searchTerms.length > 0) {
+      // Use the generated artists and search terms
+      searchQueries = [...aiSuggestions.artists, ...aiSuggestions.searchTerms];
+      console.log('Using generated search queries:', searchQueries);
+    } else {
+      // Fall back to default configuration (backup only)
+      const fallbackConfig = fallbackMoodConfigs[mood];
+      searchQueries = [
+        fallbackConfig.searchArtists[0],
+        fallbackConfig.searchArtists[1],
+        fallbackConfig.searchTerms,
+      ];
+      console.log('Using fallback search queries:', searchQueries);
+    }
+
+    // Try multiple searches: by selected artists and terms
+    let allTracks: any[] = [];
 
     for (const query of searchQueries) {
       if (allTracks.length >= 10) break;
