@@ -34,6 +34,26 @@ export default function Home() {
     }
   };
 
+  const handleRequestReplacement = async (trackId: string, index: number) => {
+    if (!selectedMood) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Request fresh recommendations for the same mood. The API can optionally accept
+      // a 'exclude' param to avoid returning the same track; backend should handle it.
+      const response = await fetch(`/api/spotify?mood=${selectedMood}&exclude=${trackId}`);
+      if (!response.ok) throw new Error('Failed to fetch replacement recommendations');
+      const data = await response.json();
+      setTracks(data.tracks);
+      setCurrentTrackIndex(0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while fetching replacements');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="app-shell">
       <div className="app-card">
@@ -85,6 +105,7 @@ export default function Home() {
                   tracks={tracks}
                   currentTrackIndex={currentTrackIndex}
                   onTrackChange={setCurrentTrackIndex}
+                  onRequestReplacement={handleRequestReplacement}
                 />
               )}
             </div>

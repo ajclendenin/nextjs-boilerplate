@@ -6,9 +6,10 @@ interface MusicPlayerProps {
   tracks: Track[];
   currentTrackIndex: number;
   onTrackChange: (index: number) => void;
+  onRequestReplacement?: (trackId: string, index: number) => void;
 }
 
-export default function MusicPlayer({ tracks, currentTrackIndex, onTrackChange }: MusicPlayerProps) {
+export default function MusicPlayer({ tracks, currentTrackIndex, onTrackChange, onRequestReplacement }: MusicPlayerProps) {
   const currentTrack = tracks[currentTrackIndex];
 
   if (!currentTrack) {
@@ -39,10 +40,11 @@ export default function MusicPlayer({ tracks, currentTrackIndex, onTrackChange }
         if (typeof artist === 'string') {
           artistNames.push(artist);
         } else if (typeof artist === 'object') {
-          if (artist.name) artistNames.push(artist.name);
-          else if (artist.profile?.name) artistNames.push(artist.profile.name);
-          else if (artist.artist?.name) artistNames.push(artist.artist.name);
-          else if (artist.title) artistNames.push(artist.title);
+          const obj: any = artist;
+          if (obj.name) artistNames.push(obj.name);
+          else if (obj.profile?.name) artistNames.push(obj.profile.name);
+          else if (obj.artist?.name) artistNames.push(obj.artist.name);
+          else if (obj.title) artistNames.push(obj.title);
         }
       });
     }
@@ -104,6 +106,20 @@ export default function MusicPlayer({ tracks, currentTrackIndex, onTrackChange }
           className="control-btn music-player-action"
         >
           Previous
+        </button>
+
+        <button
+          onClick={() => {
+            // Ask parent to fetch/replace recommendations for this track
+            if (typeof onRequestReplacement === 'function') {
+              onRequestReplacement(currentTrack.id, currentTrackIndex);
+            }
+          }}
+          className="control-btn music-player-action"
+          aria-label="Not the right song - get new recommendations"
+          title="Not the right song"
+        >
+          Not right song
         </button>
 
         <span className="text-sm text-gray-500">
