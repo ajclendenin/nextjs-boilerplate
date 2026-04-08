@@ -5,50 +5,36 @@ import { generateArtistSuggestions } from '../../../lib/aiRecommendations';
 const RAPID_API_KEY = process.env.RAPID_API_KEY;
 const RAPID_API_HOST = 'spotify23.p.rapidapi.com';
 
-// Fallback configs if AI generation fails
-const fallbackMoodConfigs: Record<Mood, { searchArtists: string[]; searchTerms: string }> = {
-  happy: { searchArtists: ['Pharrell Williams', 'Katy Perry', 'Mark Ronson'], searchTerms: 'upbeat happy song' },
-  sad: { searchArtists: ['Adele', 'Sam Smith', 'Billie Eilish'], searchTerms: 'sad emotional ballad' },
-  energetic: { searchArtists: ['The Weeknd', 'Dua Lipa', 'Calvin Harris'], searchTerms: 'high energy dance' },
-  relaxed: { searchArtists: ['Bon Iver', 'Ludovico Einaudi', 'Damien Rice'], searchTerms: 'calm ambient relaxing' },
-  romantic: { searchArtists: ['Ed Sheeran', 'John Legend', 'Beyoncé'], searchTerms: 'romantic love song' },
-  focused: { searchArtists: ['Hans Zimmer', 'Lo-fi hip hop', 'Tycho'], searchTerms: 'focus study music' },
-};
-
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const mood = searchParams.get('mood') as Mood;
+    const mood = searchParams.get('mood');
 
-    if (!mood || !fallbackMoodConfigs[mood]) {
-      return NextResponse.json({ error: 'Invalid mood' }, { status: 400 });
+    if (!mood || typeof mood !== 'string' || mood.trim().length === 0) {
+      return NextResponse.json({ error: 'Mood parameter is required' }, { status: 400 });
     }
 
     console.log(`Generating recommendations for mood: ${mood}`);
     
-    // Get AI-generated suggestions for diverse recommendations
-    const aiSuggestions = await generateArtistSuggestions(mood);
-    console.log('Generated suggestions:', aiSuggestions);
-
-    // Always use the generated suggestions (now with guaranteed randomization)
-    let searchQueries: string[] = [];
-    
-    if (aiSuggestions && aiSuggestions.artists.length > 0 && aiSuggestions.searchTerms.length > 0) {
-      // Use the generated artists and search terms
-      searchQueries = [...aiSuggestions.artists, ...aiSuggestions.searchTerms];
-      console.log('Using generated search queries:', searchQueries);
-    } else {
-      // Fall back to default configuration (backup only)
-      const fallbackConfig = fallbackMoodConfigs[mood];
-      searchQueries = [
-        fallbackConfig.searchArtists[0],
-        fallbackConfig.searchArtists[1],
-        fallbackConfig.searchTerms,
-      ];
-      console.log('Using fallback search queries:', searchQueries);
+    // Get Claude AI-generated suggestions based on the user's mood input
+    let aiSuggestions;
+    try {
+      aiSuggestions = await generateArtistSuggestions(mood);
+    } catch (error) {
+      console.error('Failed to generate AI suggestions:', error);
+      return NextResponse.json(
+        { error: 'Failed to generate music recommendations. Please try again.' },
+        { status: 500 }
+      );
     }
 
-    // Try multiple searches: by selected artists and terms
+    console.log('Generated suggestions:', aiSuggestions);
+
+    // Combine artists and search terms for Spotify search
+    const searchQueries: string[] = [...aiSuggestions.artists, ...aiSuggestions.searchTerms];
+    console.log('Using generated search queries:', searchQueries);
+
+    // Try multiple searches to get diverse tracks
     let allTracks: any[] = [];
 
     for (const query of searchQueries) {
@@ -85,7 +71,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Filter duplicates and ensure required fields exist
+    // Filter duplicates and normalize track data
     const uniqueTrackIds = new Set<string>();
     console.log('Total tracks before filtering:', allTracks.length);
     if (allTracks.length > 0) {

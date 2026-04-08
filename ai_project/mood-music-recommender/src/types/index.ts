@@ -1,4 +1,4 @@
-   export type Mood = 'happy' | 'sad' | 'energetic' | 'relaxed' | 'romantic' | 'focused';
+export type Mood = string; // Allow any custom mood input from users
 
 export interface Track {
   id: string;
