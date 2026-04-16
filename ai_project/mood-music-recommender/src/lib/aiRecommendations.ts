@@ -1,82 +1,117 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Mood } from "../types";
 
-interface ArtistSuggestions {
-  artists: string[];
-  searchTerms: string[];
+export interface SongSuggestion {
+  title: string;
+  artist: string;
 }
 
-// Initialize Anthropic client
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-export async function generateArtistSuggestions(
-  mood: Mood
-): Promise<ArtistSuggestions> {
-  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-
-  if (!anthropicApiKey) {
-    console.error('ANTHROPIC_API_KEY not found');
-    throw new Error('ANTHROPIC_API_KEY environment variable is not set');
+function extractTextFromMessageContent(content: any): string {
+  if (typeof content === 'string') {
+    return content;
   }
 
-  try {
-    const prompt = `Generate music recommendations for the following mood or emotion: "${mood}"
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        if (!block) return '';
+        return typeof block === 'string' ? block : block.text ?? '';
+      })
+      .filter(Boolean)
+      .join(' ');
+  }
 
-Please provide exactly 8 diverse artists and 5 search terms/genres that would be perfect for this mood. Format your response as valid JSON (no additional text before or after):
-
-{
-  "artists": ["Artist 1", "Artist 2", "Artist 3", "Artist 4", "Artist 5", "Artist 6", "Artist 7", "Artist 8"],
-  "searchTerms": ["term 1", "term 2", "term 3", "term 4", "term 5"]
+  return '';
 }
 
-Ensure the artists are well-known and popular on Spotify, and the search terms are specific to the mood. Vary the recommendations to include different genres and styles that fit the mood.`;
+function parseAnthropicResponse(message: any): string {
+  if (!message?.content) return '';
 
-    const response = await client.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 500,
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    });
+  return Array.isArray(message.content)
+    ? message.content.map(extractTextFromMessageContent).join(' ')
+    : extractTextFromMessageContent(message.content);
+}
 
-    // Extract text content from response
-    const textContent = response.content[0];
-    if (textContent.type !== 'text') {
-      throw new Error('Unexpected response type from Claude');
-    }
-
-    const responseText = textContent.text;
-    console.log('Claude response:', responseText);
-
-    // Try to parse JSON from the response
-    try {
-      // Extract JSON from the response (it might have extra text)
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('No JSON found in response');
-      }
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.artists && parsed.searchTerms && Array.isArray(parsed.artists) && Array.isArray(parsed.searchTerms)) {
-        console.log(`Claude generated recommendations for "${mood}":`, parsed);
-        return {
-          artists: parsed.artists.slice(0, 8),
-          searchTerms: parsed.searchTerms.slice(0, 5)
-        };
-      }
-    } catch (parseError) {
-      console.warn('Failed to parse Claude response as JSON:', parseError);
-      throw new Error('Failed to parse recommendations from Claude');
-    }
-
-  } catch (error) {
-    console.error('Claude API call failed:', error);
-    throw error;
+async function getAiGeneratedSongSuggestions(mood: Mood, isAlternative: boolean = false): Promise<SongSuggestion[] | null> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.warn('ANTHROPIC_API_KEY is not set. Falling back to generic mood-based search queries.');
+    return null;
   }
+
+  // Add randomness to ensure varied responses even for repeated calls
+  const randomSeed = Math.floor(Math.random() * 10000);
+
+  const alternativeText = isAlternative 
+    ? ' Provide completely different and less common song recommendations for this mood.' 
+    : '';
+
+  const prompt = `You are a creative music recommendation assistant. For the mood "${mood}", recommend 8 diverse and creative songs that evoke or match this emotional state. Think outside the box - include lesser-known gems, unique interpretations, and songs from various genres, eras, and cultures that all align with "${mood}", not necessarily having the word "${mood}" in the title.${alternativeText}
+
+Be imaginative: mix popular hits with hidden treasures, different musical styles, and unexpected choices that still capture the essence of "${mood}".
+
+Random variation ${randomSeed}: Ensure this recommendation is fresh and different from typical suggestions.
+
+Return only a valid JSON object with exactly one key: "songs". "songs" should be an array of 8 objects, each with "title" and "artist" string values.
+
+Examples:
+- For "happy": upbeat pop like "Uptown Funk" by Mark Ronson ft. Bruno Mars, joyful indie like "Dog Days Are Over" by Florence + The Machine, and eclectic choices
+- For "sad": emotional ballads like "Someone Like You" by Adele, haunting folk like "Hurt" by Johnny Cash, and varied melancholic music
+- For "relaxed": ambient tracks like "Weightless" by Marconi Union, soothing jazz like "What a Wonderful World" by Louis Armstrong, and diverse calming music
+
+Do not include any explanation or extra text.`;
+
+  let message;
+  try {
+    message = await client.messages.create({
+      model: 'claude-3',
+      max_tokens: 260,
+      temperature: 0.8,
+      system: 'You are a helpful assistant that suggests song titles and artists based on mood.',
+      messages: [
+        { role: 'user', content: prompt }
+      ]
+    });
+  } catch (error) {
+    console.warn('Anthropic API request failed:', error);
+    return null;
+  }
+
+  const textResponse = parseAnthropicResponse(message);
+
+  try {
+    const parsed = JSON.parse(textResponse) as { songs: SongSuggestion[] };
+
+    if (
+      parsed &&
+      Array.isArray(parsed.songs) &&
+      parsed.songs.length > 0 &&
+      parsed.songs.every(
+        (song) =>
+          song &&
+          typeof song.title === 'string' &&
+          typeof song.artist === 'string'
+      )
+    ) {
+      return parsed.songs;
+    }
+
+    console.warn('Anthropic response JSON did not match expected shape:', parsed);
+  } catch (error) {
+    console.warn('Failed to parse Anthropic response as JSON:', textResponse, error);
+  }
+
+  return null;
+}
+
+export async function generateSongSuggestions(
+  mood: Mood,
+  isAlternative: boolean = false
+): Promise<SongSuggestion[]> {
+  const aiSongs = await getAiGeneratedSongSuggestions(mood, isAlternative);
+  return aiSongs ?? [];
 }
 

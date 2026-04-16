@@ -100,6 +100,18 @@ export default function Home() {
                 </div>
               )}
 
+              {!loading && !error && tracks.length === 0 && (
+                <div className="empty-state">
+                  <p>No recommendations were found for that mood.</p>
+                  <button
+                    onClick={() => setSelectedMood(null)}
+                    className="control-btn"
+                  >
+                    Try a different mood
+                  </button>
+                </div>
+              )}
+
               {!loading && !error && tracks.length > 0 && (
                 <MusicPlayer
                   tracks={tracks}
