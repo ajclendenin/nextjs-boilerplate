@@ -1,22 +1,150 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Mood } from '../../../types';
 import { generateSongSuggestions, SongSuggestion } from '../../../lib/aiRecommendations';
+import {
+  buildMoodContext,
+  fetchCurrentWeather,
+  getContextAwareSearchQueries,
+} from '../../../lib/weatherContext';
 
 const RAPID_API_KEY = process.env.RAPID_API_KEY;
 const RAPID_API_HOST = 'spotify23.p.rapidapi.com';
 
+const genericTitleWords = new Set([
+  'happy',
+  'sad',
+  'upbeat',
+  'chill',
+  'relaxed',
+  'relaxing',
+  'calm',
+  'mood',
+  'vibes',
+  'vibe',
+  'energy',
+  'playlist',
+  'song',
+  'songs',
+  'music',
+  'birthday',
+]);
+
 // Map moods to broader search terms to avoid literal title searches
 const moodSearchMap: Record<string, string[]> = {
-  happy: ['upbeat', 'pop', 'dance', 'joyful', 'cheerful'],
-  sad: ['ballad', 'acoustic', 'melancholy', 'slow', 'emotional'],
-  angry: ['rock', 'heavy', 'intense', 'aggressive', 'punk'],
-  relaxed: ['chill', 'ambient', 'lo-fi', 'calm', 'jazz'],
-  excited: ['electronic', 'dance', 'energetic', 'party', 'edm'],
-  romantic: ['love', 'romantic', 'ballad', 'slow', 'r&b'],
-  nostalgic: ['80s', '90s', 'retro', 'classic', 'oldies'],
-  adventurous: ['adventure', 'epic', 'instrumental', 'soundtrack', 'folk'],
+  happy: [
+    'As It Was Harry Styles',
+    'Good Vibrations The Beach Boys',
+    'Dancing Queen ABBA',
+    'Walking on Sunshine Katrina and the Waves',
+  ],
+  sad: [
+    'Someone Like You Adele',
+    'Skinny Love Bon Iver',
+    'Fix You Coldplay',
+    'The Night We Met Lord Huron',
+  ],
+  angry: [
+    'Killing In The Name Rage Against The Machine',
+    'Sabotage Beastie Boys',
+    'Misery Business Paramore',
+    'Seven Nation Army The White Stripes',
+  ],
+  relaxed: [
+    'Weightless Marconi Union',
+    'Banana Pancakes Jack Johnson',
+    'Come Away With Me Norah Jones',
+    'Sunset Lover Petit Biscuit',
+  ],
+  excited: [
+    'Levitating Dua Lipa',
+    'Blinding Lights The Weeknd',
+    'Titanium David Guetta Sia',
+    'Dont Start Now Dua Lipa',
+  ],
+  romantic: [
+    'At Last Etta James',
+    'Lover Taylor Swift',
+    'Best Part Daniel Caesar H.E.R.',
+    'Lets Stay Together Al Green',
+  ],
+  nostalgic: [
+    'Dreams Fleetwood Mac',
+    'Take On Me a-ha',
+    'Time After Time Cyndi Lauper',
+    'Everybody Wants to Rule the World Tears for Fears',
+  ],
+  adventurous: [
+    'Send Me On My Way Rusted Root',
+    'Mountain Sound Of Monsters and Men',
+    'Adventure of a Lifetime Coldplay',
+    'Ends of the Earth Lord Huron',
+  ],
   // Add more mappings as needed
 };
+
+function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getMoodTokens(mood: string): Set<string> {
+  return new Set(
+    normalizeText(mood)
+      .split(' ')
+      .filter((token) => token.length > 2)
+  );
+}
+
+function shouldFilterTrackTitle(title: string, mood: string): boolean {
+  const normalizedTitle = normalizeText(title);
+  if (!normalizedTitle) {
+    return true;
+  }
+
+  const titleTokens = normalizedTitle.split(' ').filter(Boolean);
+  const moodTokens = getMoodTokens(mood);
+  const overlapsMood = titleTokens.some((token) => moodTokens.has(token));
+  const looksGeneric = titleTokens.every(
+    (token) => genericTitleWords.has(token) || moodTokens.has(token)
+  );
+
+  if (looksGeneric) {
+    return true;
+  }
+
+  if (overlapsMood && titleTokens.length <= 4) {
+    return true;
+  }
+
+  return false;
+}
+
+function getCanonicalTrackTitle(title: string): string {
+  return normalizeText(title)
+    .replace(/\((?:[^)]*?(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe)[^)]*)\)/g, ' ')
+    .replace(/\[(?:[^\]]*?(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe)[^\]]*)\]/g, ' ')
+    .replace(/\s+-\s+(?:[^-]*?(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe).*)$/g, ' ')
+    .replace(/\b(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe)\b.*$/g, ' ')
+    .replace(/\b(?:part|pt)\s*\d+\b/g, ' ')
+    .replace(/\b(?:sped up|speed up|slowed|slowed down|nightcore|instrumental|karaoke|festival|radio edit|extended|bonus track)\b.*$/g, ' ')
+    .replace(/\b\d{4}\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseCsvValues(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
 
 function getFallbackSearchQueries(mood: string): string[] {
   const lowerMood = mood.toLowerCase();
@@ -27,11 +155,26 @@ function getFallbackSearchQueries(mood: string): string[] {
   return [mood, `${mood} music`, `${mood} playlist`, `${mood} vibe`];
 }
 
+function parseCoordinate(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const mood = searchParams.get('mood');
     const exclude = searchParams.get('exclude');
+    const excludeIds = parseCsvValues(searchParams.get('excludeIds'));
+    const excludeTitles = parseCsvValues(searchParams.get('excludeTitles'));
+    const requestSeed = searchParams.get('requestSeed') || undefined;
+    const latitude = parseCoordinate(searchParams.get('lat'));
+    const longitude = parseCoordinate(searchParams.get('lon'));
+    const localHour = parseCoordinate(searchParams.get('localHour'));
 
     if (!mood || typeof mood !== 'string' || mood.trim().length === 0) {
       return NextResponse.json({ error: 'Mood parameter is required' }, { status: 400 });
@@ -47,10 +190,22 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const weather =
+      latitude !== null && longitude !== null
+        ? await fetchCurrentWeather(latitude, longitude)
+        : null;
+    const moodContext = buildMoodContext(mood, weather, localHour);
+
+    console.log('Resolved mood context:', moodContext.summary);
+
     // Get song suggestions: re-prompt Claude every time for fresh recommendations
     let songSuggestions: SongSuggestion[] = [];
     try {
-      songSuggestions = await generateSongSuggestions(mood, !!exclude);
+      songSuggestions = await generateSongSuggestions(moodContext.effectiveMood as Mood, {
+        isAlternative: !!exclude || excludeIds.length > 0,
+        excludedTitles: excludeTitles,
+        requestSeed,
+      });
     } catch (error) {
       console.error('Failed to generate AI suggestions:', error);
       songSuggestions = [];
@@ -58,9 +213,23 @@ export async function GET(request: NextRequest) {
 
     console.log('Generated song suggestions:', songSuggestions);
 
+    const fallbackQueries = (() => {
+      const fallback = getFallbackSearchQueries(mood);
+      if (fallback.length > 0) {
+        return fallback;
+      }
+
+      return getContextAwareSearchQueries(
+        mood,
+        moodContext.effectiveMood,
+        weather,
+        localHour
+      );
+    })();
+
     const searchQueries: string[] = songSuggestions.length > 0
       ? songSuggestions.map((song) => `${song.title} ${song.artist}`)
-      : getFallbackSearchQueries(mood);
+      : fallbackQueries;
 
     console.log('Using generated search queries:', searchQueries);
 
@@ -102,7 +271,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter duplicates and normalize track data
+    const blockedTrackIds = new Set(excludeIds.concat(exclude ? [exclude] : []));
+    const blockedCanonicalTitles = new Set(
+      excludeTitles.map((title) => getCanonicalTrackTitle(title))
+    );
     const uniqueTrackIds = new Set<string>();
+    const uniqueCanonicalTitles = new Set<string>();
     console.log('Total tracks before filtering:', allTracks.length);
     if (allTracks.length > 0) {
       console.log('Sample track structure:', JSON.stringify(allTracks[0], null, 2));
@@ -136,6 +310,7 @@ export async function GET(request: NextRequest) {
 
         return {
           id: trackData.id,
+          canonicalTitle: getCanonicalTrackTitle(trackData.name || ''),
           name: trackData.name,
           artists: artists.length > 0 ? artists : [{ name: 'Unknown Artist' }],
           album: {
@@ -147,12 +322,25 @@ export async function GET(request: NextRequest) {
         };
       })
       .filter((track: any) => {
-        if (!track.id || !track.name || uniqueTrackIds.has(track.id)) {
+        const canonicalTitle = track.canonicalTitle || normalizeText(track.name || '');
+
+        if (
+          !track.id ||
+          !track.name ||
+          blockedTrackIds.has(track.id) ||
+          uniqueTrackIds.has(track.id) ||
+          blockedCanonicalTitles.has(canonicalTitle) ||
+          uniqueCanonicalTitles.has(canonicalTitle) ||
+          shouldFilterTrackTitle(track.name, mood)
+        ) {
           return false;
         }
+
         uniqueTrackIds.add(track.id);
+        uniqueCanonicalTitles.add(canonicalTitle);
         return true;
       })
+      .map(({ canonicalTitle, ...track }: any) => track)
       .slice(0, 10);
 
     console.log('Normalized tracks count:', normalizedTracks.length);
@@ -180,6 +368,17 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       tracks: filteredTracks.slice(0, 10),
+      context: {
+        requestedMood: mood,
+        effectiveMood: moodContext.effectiveMood,
+        summary: moodContext.summary,
+        weather: weather
+          ? {
+              condition: weather.condition,
+              temperatureC: weather.temperatureC,
+            }
+          : null,
+      },
     });
   } catch (error) {
     console.error('Error fetching Spotify recommendations:', error);

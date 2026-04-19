@@ -54,7 +54,7 @@ export default function MoodSelector({ onMoodSelect, selectedMood }: MoodSelecto
       )}
 
       <p className="text-xs text-gray-500 mt-3">
-        Tip: Be creative! Try describing any mood, feeling, or musical vibe like "peaceful morning coffee" or "intense workout"
+        Tip: Your mood stays primary. If you allow location access, local weather and time will fine-tune the recommendations.
       </p>
     </form>
   );

@@ -5,12 +5,111 @@ import MoodSelector from './components/MoodSelector';
 import MusicPlayer from './components/MusicPlayer';
 import { Mood, Track } from '../types';
 
+  interface ListenerContext {
+    lat?: string;
+    lon?: string;
+    localHour: string;
+  }
+
+  interface RecommendationResponse {
+    tracks: Track[];
+    context?: {
+      summary?: string;
+    };
+  }
+
+  function getCurrentHour(): string {
+    return String(new Date().getHours());
+  }
+
+  async function getListenerContext(): Promise<ListenerContext> {
+    const fallbackContext: ListenerContext = { localHour: getCurrentHour() };
+
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      return fallbackContext;
+    }
+
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false,
+          maximumAge: 15 * 60 * 1000,
+          timeout: 5000,
+        });
+      });
+
+      return {
+        lat: String(position.coords.latitude),
+        lon: String(position.coords.longitude),
+        localHour: getCurrentHour(),
+      };
+    } catch {
+      return fallbackContext;
+    }
+  }
+
 export default function Home() {
   const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [contextSummary, setContextSummary] = useState<string | null>(null);
+  const [listenerContext, setListenerContext] = useState<ListenerContext | null>(null);
+  const [moodHistory, setMoodHistory] = useState<Record<string, { ids: string[]; titles: string[] }>>({});
+
+  const getMoodHistoryEntry = (mood: Mood) => {
+    return moodHistory[mood.trim().toLowerCase()] ?? { ids: [], titles: [] };
+  };
+
+  const updateMoodHistory = (mood: Mood, nextTracks: Track[]) => {
+    const moodKey = mood.trim().toLowerCase();
+
+    setMoodHistory((currentHistory) => {
+      const existing = currentHistory[moodKey] ?? { ids: [], titles: [] };
+      const ids = Array.from(new Set([...existing.ids, ...nextTracks.map((track) => track.id)])).slice(-50);
+      const titles = Array.from(new Set([...existing.titles, ...nextTracks.map((track) => track.name)])).slice(-50);
+
+      return {
+        ...currentHistory,
+        [moodKey]: { ids, titles },
+      };
+    });
+  };
+
+  const buildRecommendationUrl = async (mood: Mood, exclude?: string) => {
+    const resolvedContext = listenerContext
+      ? { ...listenerContext, localHour: getCurrentHour() }
+      : await getListenerContext();
+    const historyEntry = getMoodHistoryEntry(mood);
+
+    setListenerContext(resolvedContext);
+
+    const params = new URLSearchParams({
+      mood,
+      localHour: resolvedContext.localHour,
+      requestSeed: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    });
+
+    if (resolvedContext.lat && resolvedContext.lon) {
+      params.set('lat', resolvedContext.lat);
+      params.set('lon', resolvedContext.lon);
+    }
+
+    if (historyEntry.ids.length > 0) {
+      params.set('excludeIds', historyEntry.ids.join(','));
+    }
+
+    if (historyEntry.titles.length > 0) {
+      params.set('excludeTitles', historyEntry.titles.join(','));
+    }
+
+    if (exclude) {
+      params.set('exclude', exclude);
+    }
+
+    return `/api/spotify?${params.toString()}`;
+  };
 
   const handleMoodSelect = async (mood: Mood) => {
     setSelectedMood(mood);
@@ -18,17 +117,20 @@ export default function Home() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/spotify?mood=${mood}`);
+        const response = await fetch(await buildRecommendationUrl(mood));
       if (!response.ok) {
         throw new Error('Failed to fetch recommendations');
       }
 
-      const data = await response.json();
+      const data: RecommendationResponse = await response.json();
       setTracks(data.tracks);
       setCurrentTrackIndex(0);
+      setContextSummary(data.context?.summary ?? null);
+      updateMoodHistory(mood, data.tracks);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setTracks([]);
+      setContextSummary(null);
     } finally {
       setLoading(false);
     }
@@ -40,13 +142,13 @@ export default function Home() {
     setError(null);
 
     try {
-      // Request fresh recommendations for the same mood. The API can optionally accept
-      // a 'exclude' param to avoid returning the same track; backend should handle it.
-      const response = await fetch(`/api/spotify?mood=${selectedMood}&exclude=${trackId}`);
+      const response = await fetch(await buildRecommendationUrl(selectedMood, trackId));
       if (!response.ok) throw new Error('Failed to fetch replacement recommendations');
-      const data = await response.json();
+      const data: RecommendationResponse = await response.json();
       setTracks(data.tracks);
       setCurrentTrackIndex(0);
+      setContextSummary(data.context?.summary ?? null);
+      updateMoodHistory(selectedMood, data.tracks);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred while fetching replacements');
     } finally {
@@ -74,12 +176,20 @@ export default function Home() {
             <div>
               <div className="text-center mb-6">
                 <button
-                  onClick={() => setSelectedMood(null)}
+                  onClick={() => {
+                    setSelectedMood(null);
+                    setTracks([]);
+                    setContextSummary(null);
+                  }}
                   className="control-btn"
                 >
                   ← Change Mood
                 </button>
               </div>
+
+              {contextSummary && !loading && !error && (
+                <p className="text-center text-sm text-gray-600 mb-4">{contextSummary}</p>
+              )}
 
               {loading && (
                 <div className="loading-state">
