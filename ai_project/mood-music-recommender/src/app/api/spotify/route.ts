@@ -10,6 +10,17 @@ import {
 const RAPID_API_KEY = process.env.RAPID_API_KEY;
 const RAPID_API_HOST = 'spotify23.p.rapidapi.com';
 
+const canonicalMoodSynonyms: Record<string, string[]> = {
+  happy: ['happy', 'joyful', 'cheerful', 'bright', 'upbeat', 'optimistic', 'glad'],
+  sad: ['sad', 'down', 'blue', 'upset', 'mellow', 'depressed', 'gloomy', 'heartbroken', 'low'],
+  angry: ['angry', 'mad', 'furious', 'frustrated', 'irritated', 'annoyed'],
+  relaxed: ['relaxed', 'calm', 'chill', 'peaceful', 'serene', 'laid back'],
+  excited: ['excited', 'hyped', 'energetic', 'pumped', 'amped'],
+  romantic: ['romantic', 'loving', 'flirty', 'intimate'],
+  nostalgic: ['nostalgic', 'wistful', 'sentimental', 'throwback'],
+  adventurous: ['adventurous', 'bold', 'explorative', 'wild'],
+};
+
 const genericTitleWords = new Set([
   'happy',
   'sad',
@@ -175,6 +186,31 @@ function parseCoordinate(value: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeMoodInput(mood: string): string {
+  const normalizedInput = normalizeText(mood);
+
+  if (!normalizedInput) {
+    return mood;
+  }
+
+  for (const [canonicalMood, synonyms] of Object.entries(canonicalMoodSynonyms)) {
+    if (
+      synonyms.some((synonym) => {
+        const normalizedSynonym = normalizeText(synonym);
+        return (
+          normalizedInput === normalizedSynonym ||
+          normalizedInput.includes(normalizedSynonym) ||
+          normalizedSynonym.includes(normalizedInput)
+        );
+      })
+    ) {
+      return canonicalMood;
+    }
+  }
+
+  return normalizedInput;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -193,6 +229,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Mood parameter is required' }, { status: 400 });
     }
 
+    const normalizedMood = normalizeMoodInput(mood);
+
     console.log(`Generating recommendations for mood: ${mood}`);
 
     if (!RAPID_API_KEY) {
@@ -207,7 +245,7 @@ export async function GET(request: NextRequest) {
       latitude !== null && longitude !== null
         ? await fetchCurrentWeather(latitude, longitude)
         : null;
-    const moodContext = buildMoodContext(mood, weather, localHour);
+    const moodContext = buildMoodContext(normalizedMood, weather, localHour);
 
     console.log('Resolved mood context:', moodContext.summary);
 
@@ -229,13 +267,13 @@ export async function GET(request: NextRequest) {
     console.log('Generated song suggestions:', songSuggestions);
 
     const fallbackQueries = (() => {
-      const fallback = getFallbackSearchQueries(mood);
+      const fallback = getFallbackSearchQueries(normalizedMood);
       if (fallback.length > 0) {
         return fallback;
       }
 
       return getContextAwareSearchQueries(
-        mood,
+        normalizedMood,
         moodContext.effectiveMood,
         weather,
         localHour
@@ -347,7 +385,7 @@ export async function GET(request: NextRequest) {
           uniqueTrackIds.has(track.id) ||
           blockedCanonicalTitles.has(canonicalTitle) ||
           uniqueCanonicalTitles.has(canonicalTitle) ||
-          shouldFilterTrackTitle(track.name, mood)
+          shouldFilterTrackTitle(track.name, normalizedMood)
         ) {
           return false;
         }
@@ -386,6 +424,7 @@ export async function GET(request: NextRequest) {
       tracks: filteredTracks.slice(0, 10),
       context: {
         requestedMood: mood,
+        interpretedMood: normalizedMood,
         effectiveMood: moodContext.effectiveMood,
         timeOfDay: moodContext.timeOfDay,
         summary: feedback.length > 0
