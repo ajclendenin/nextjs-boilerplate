@@ -54,7 +54,7 @@ export default function MoodSelector({ onMoodSelect, selectedMood }: MoodSelecto
       )}
 
       <p className="text-xs text-gray-500 mt-3">
-        Tip: Your mood stays primary. If you allow location access, local weather and time will fine-tune the recommendations.
+        Tip: Allowing location access will fine-tune the recommendations to suit your mood based on local weather and time of day.
       </p>
     </form>
   );

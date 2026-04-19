@@ -9,6 +9,8 @@ export interface SongSuggestion {
 export interface SongSuggestionOptions {
   isAlternative?: boolean;
   excludedTitles?: string[];
+  feedback?: string;
+  rejectedTrackTitle?: string;
   requestSeed?: string;
 }
 
@@ -255,11 +257,17 @@ async function getAiGeneratedSongSuggestions(
   const exclusionText = excludedTitles.length > 0
     ? ` Do not recommend any of these song titles again: ${excludedTitles.map((title) => `"${title}"`).join(', ')}.`
     : '';
+  const feedbackText = options.feedback
+    ? ` The listener said the previous recommendation was not right because: "${options.feedback}".`
+    : '';
+  const rejectedTrackText = options.rejectedTrackTitle
+    ? ` The rejected track title was "${options.rejectedTrackTitle}". Avoid recommending that song or anything too similar in tone, arrangement, or pacing if it conflicts with the feedback.`
+    : '';
   const requestSeedText = options.requestSeed
     ? ` Request seed: ${options.requestSeed}. Use it to vary the selection and avoid repeating a prior set.`
     : '';
 
-  const prompt = `You are a creative music recommendation assistant. For the mood "${mood}", recommend 12 real songs that fit the feeling without repeating titles or falling back to generic mood words.${alternativeText}${exclusionText}${requestSeedText}
+  const prompt = `You are a creative music recommendation assistant. For the mood "${mood}", recommend 12 real songs that fit the feeling without repeating titles or falling back to generic mood words.${alternativeText}${exclusionText}${feedbackText}${rejectedTrackText}${requestSeedText}
 
 Rules:
 - Recommend real, recognizable songs by real artists.
@@ -268,6 +276,7 @@ Rules:
 - Prefer songs a human would expect from a strong search result set: a mix of popular, critically known, and credible catalog picks.
 - Make the list diverse across artists, eras, and genres.
 - Favor songs that imply the mood through sound and cultural association, not just title matching.
+- When listener feedback is provided, prioritize it over the rejected song and steer the replacement set in the requested direction.
 
 Reference style for a happy mood: "As It Was" by Harry Styles, "Good Vibrations" by The Beach Boys, "Dancing Queen" by ABBA, "Walking on Sunshine" by Katrina and the Waves.
 

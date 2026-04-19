@@ -122,15 +122,26 @@ function shouldFilterTrackTitle(title: string, mood: string): boolean {
   return false;
 }
 
+function isVariantReleaseTitle(title: string): boolean {
+  const loweredTitle = title.toLowerCase();
+
+  return /\b(?:cover|remaster(?:ed)?|remix|mix|version|edit|live|mono|stereo|acoustic|deluxe|sped up|speed up|slowed(?: down)?|nightcore|karaoke|festival|radio edit|extended|bonus track|re-release)\b/.test(loweredTitle);
+}
+
 function getCanonicalTrackTitle(title: string): string {
-  return normalizeText(title)
-    .replace(/\((?:[^)]*?(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe)[^)]*)\)/g, ' ')
-    .replace(/\[(?:[^\]]*?(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe)[^\]]*)\]/g, ' ')
-    .replace(/\s+-\s+(?:[^-]*?(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe).*)$/g, ' ')
+  return title
+    .toLowerCase()
+    .replace(/\((?:feat\.?|ft\.?|featuring)[^)]*\)/g, ' ')
+    .replace(/\[(?:feat\.?|ft\.?|featuring)[^\]]*\]/g, ' ')
+    .replace(/\s+-\s+(?:feat\.?|ft\.?|featuring)\s+.*$/g, ' ')
+    .replace(/\((?:[^)]*?(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe|sped up|speed up|slowed(?: down)?|nightcore|karaoke|festival|radio edit|extended|bonus track|re-release)[^)]*)\)/g, ' ')
+    .replace(/\[(?:[^\]]*?(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe|sped up|speed up|slowed(?: down)?|nightcore|karaoke|festival|radio edit|extended|bonus track|re-release)[^\]]*)\]/g, ' ')
+    .replace(/\s+-\s+(?:[^-]*?(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe|sped up|speed up|slowed(?: down)?|nightcore|karaoke|festival|radio edit|extended|bonus track|re-release).*)$/g, ' ')
     .replace(/\b(?:remaster|remastered|remix|mix|version|edit|live|mono|stereo|cover|acoustic|deluxe)\b.*$/g, ' ')
     .replace(/\b(?:part|pt)\s*\d+\b/g, ' ')
-    .replace(/\b(?:sped up|speed up|slowed|slowed down|nightcore|instrumental|karaoke|festival|radio edit|extended|bonus track)\b.*$/g, ' ')
+    .replace(/\b(?:sped up|speed up|slowed|slowed down|nightcore|instrumental|karaoke|festival|radio edit|extended|bonus track|re-release)\b.*$/g, ' ')
     .replace(/\b\d{4}\b/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -171,6 +182,8 @@ export async function GET(request: NextRequest) {
     const exclude = searchParams.get('exclude');
     const excludeIds = parseCsvValues(searchParams.get('excludeIds'));
     const excludeTitles = parseCsvValues(searchParams.get('excludeTitles'));
+    const feedback = searchParams.get('feedback')?.trim() || '';
+    const rejectedTrackTitle = searchParams.get('rejectedTrackTitle')?.trim() || '';
     const requestSeed = searchParams.get('requestSeed') || undefined;
     const latitude = parseCoordinate(searchParams.get('lat'));
     const longitude = parseCoordinate(searchParams.get('lon'));
@@ -202,8 +215,10 @@ export async function GET(request: NextRequest) {
     let songSuggestions: SongSuggestion[] = [];
     try {
       songSuggestions = await generateSongSuggestions(moodContext.effectiveMood as Mood, {
-        isAlternative: !!exclude || excludeIds.length > 0,
+        isAlternative: !!exclude || excludeIds.length > 0 || feedback.length > 0,
         excludedTitles: excludeTitles,
+        feedback,
+        rejectedTrackTitle,
         requestSeed,
       });
     } catch (error) {
@@ -327,6 +342,7 @@ export async function GET(request: NextRequest) {
         if (
           !track.id ||
           !track.name ||
+          isVariantReleaseTitle(track.name) ||
           blockedTrackIds.has(track.id) ||
           uniqueTrackIds.has(track.id) ||
           blockedCanonicalTitles.has(canonicalTitle) ||
@@ -371,7 +387,10 @@ export async function GET(request: NextRequest) {
       context: {
         requestedMood: mood,
         effectiveMood: moodContext.effectiveMood,
-        summary: moodContext.summary,
+        timeOfDay: moodContext.timeOfDay,
+        summary: feedback.length > 0
+          ? `${moodContext.summary} Considering your feedback: "${feedback}".`
+          : moodContext.summary,
         weather: weather
           ? {
               condition: weather.condition,

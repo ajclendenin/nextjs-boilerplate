@@ -1,6 +1,6 @@
    'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import MoodSelector from './components/MoodSelector';
 import MusicPlayer from './components/MusicPlayer';
 import { Mood, Track } from '../types';
@@ -15,7 +15,130 @@ import { Mood, Track } from '../types';
     tracks: Track[];
     context?: {
       summary?: string;
+      timeOfDay?: string;
+      weather?: {
+        condition?: string;
+        temperatureC?: number | null;
+      } | null;
     };
+  }
+
+  interface HeaderContextResponse {
+    weather?: {
+      condition?: string;
+      temperatureC?: number | null;
+    } | null;
+  }
+
+  function TimeIcon() {
+    const hour = new Date().getHours();
+
+    if (hour < 6 || hour >= 21) {
+      return (
+        <svg viewBox="0 0 24 24" className="context-icon" aria-hidden="true">
+          <path d="M16.5 2.5a9.5 9.5 0 1 0 5 17.5A8.5 8.5 0 1 1 16.5 2.5z" fill="#334155" />
+        </svg>
+      );
+    }
+
+    if (hour >= 17) {
+      return (
+        <svg viewBox="0 0 24 24" className="context-icon" aria-hidden="true">
+          <circle cx="12" cy="12" r="5" fill="#fb923c" />
+          <path d="M3 17h18" stroke="#334155" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    if (hour < 12) {
+      return (
+        <svg viewBox="0 0 24 24" className="context-icon" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" fill="#fbbf24" />
+          <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.5 5.5l2.2 2.2M16.3 16.3l2.2 2.2M18.5 5.5l-2.2 2.2M7.7 16.3l-2.2 2.2" stroke="#f59e0b" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    return (
+      <svg viewBox="0 0 24 24" className="context-icon" aria-hidden="true">
+        <circle cx="12" cy="12" r="5" fill="#f59e0b" />
+        <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" stroke="#f59e0b" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  function WeatherIcon({ condition }: { condition?: string }) {
+    const lower = condition?.toLowerCase() ?? '';
+    const renderSunIcon = () => (
+      <svg viewBox="0 0 24 24" className="context-icon context-icon-weather" aria-hidden="true">
+        <circle cx="12" cy="12" r="5" fill="#fbbf24" />
+        <path d="M12 2.3v2.8M12 18.9v2.8M2.3 12h2.8M18.9 12h2.8M5.1 5.1l2 2M16.9 16.9l2 2M18.9 5.1l-2 2M7.1 16.9l-2 2" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+
+    if (!condition || lower.trim().length === 0) {
+      return renderSunIcon();
+    }
+
+    const isSunnyLike =
+      lower.includes('sun') ||
+      lower.includes('clear') ||
+      lower.includes('sunny') ||
+      lower.includes('mostly sunny') ||
+      lower.includes('partly sunny') ||
+      lower.includes('partly cloudy') ||
+      lower.includes('few clouds') ||
+      lower.includes('fair');
+
+    if (lower.includes('rain') || lower.includes('drizzle')) {
+      return (
+        <svg viewBox="0 0 24 24" className="context-icon context-icon-weather" aria-hidden="true">
+          <path d="M7 16a4.5 4.5 0 1 1 .5-9 5.5 5.5 0 0 1 10.5 2A3.5 3.5 0 1 1 18.5 16H7z" fill="#ffffff" />
+          <path d="M8.5 18.5l-1 2M12 18.5l-1 2M15.5 18.5l-1 2" stroke="#0ea5e9" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    if (lower.includes('storm') || lower.includes('thunder')) {
+      return (
+        <svg viewBox="0 0 24 24" className="context-icon context-icon-weather" aria-hidden="true">
+          <path d="M7 15.5a4.5 4.5 0 1 1 .5-9 5.5 5.5 0 0 1 10.5 2A3.5 3.5 0 1 1 18.5 15.5H7z" fill="#475569" />
+          <path d="M12 16l-2 3h2l-1 3 3-4h-2l1-2z" fill="#facc15" />
+        </svg>
+      );
+    }
+
+    if (lower.includes('snow')) {
+      return (
+        <svg viewBox="0 0 24 24" className="context-icon context-icon-weather" aria-hidden="true">
+          <path d="M7 15.5a4.5 4.5 0 1 1 .5-9 5.5 5.5 0 0 1 10.5 2A3.5 3.5 0 1 1 18.5 15.5H7z" fill="#64748b" />
+          <path d="M10 18.2h4M12 16.2v4M10.6 16.8l2.8 2.8M13.4 16.8l-2.8 2.8" stroke="#f1f5f9" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    if (lower.includes('fog') || lower.includes('mist')) {
+      return (
+        <svg viewBox="0 0 24 24" className="context-icon context-icon-weather" aria-hidden="true">
+          <path d="M6 9h12M4 13h16M6 17h12" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    if (isSunnyLike) {
+      return renderSunIcon();
+    }
+
+    if (lower.includes('overcast') || lower.includes('cloudy') || lower === 'clouds' || lower.includes('clouds')) {
+      return (
+        <svg viewBox="0 0 24 24" className="context-icon context-icon-weather" aria-hidden="true">
+          <path d="M7 16a4.5 4.5 0 1 1 .5-9 5.5 5.5 0 0 1 10.5 2A3.5 3.5 0 1 1 18.5 16H7z" fill="#ffffff" />
+          <path d="M7 16h11.5" stroke="#bfdbfe" strokeWidth="1" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    return renderSunIcon();
   }
 
   function getCurrentHour(): string {
@@ -57,6 +180,44 @@ export default function Home() {
   const [contextSummary, setContextSummary] = useState<string | null>(null);
   const [listenerContext, setListenerContext] = useState<ListenerContext | null>(null);
   const [moodHistory, setMoodHistory] = useState<Record<string, { ids: string[]; titles: string[] }>>({});
+  const [headerWeather, setHeaderWeather] = useState<HeaderContextResponse['weather'] | null>(null);
+  const [clockLabel, setClockLabel] = useState(() =>
+    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  );
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setClockLabel(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    const loadHeaderWeather = async () => {
+      const context = await getListenerContext();
+
+      if (!context.lat || !context.lon) {
+        setHeaderWeather(null);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/context?lat=${context.lat}&lon=${context.lon}`);
+        if (!response.ok) {
+          setHeaderWeather(null);
+          return;
+        }
+
+        const data: HeaderContextResponse = await response.json();
+        setHeaderWeather(data.weather ?? null);
+      } catch {
+        setHeaderWeather(null);
+      }
+    };
+
+    void loadHeaderWeather();
+  }, []);
 
   const getMoodHistoryEntry = (mood: Mood) => {
     return moodHistory[mood.trim().toLowerCase()] ?? { ids: [], titles: [] };
@@ -77,7 +238,12 @@ export default function Home() {
     });
   };
 
-  const buildRecommendationUrl = async (mood: Mood, exclude?: string) => {
+  const buildRecommendationUrl = async (
+    mood: Mood,
+    exclude?: string,
+    replacementFeedback?: string,
+    rejectedTrackTitle?: string
+  ) => {
     const resolvedContext = listenerContext
       ? { ...listenerContext, localHour: getCurrentHour() }
       : await getListenerContext();
@@ -108,6 +274,14 @@ export default function Home() {
       params.set('exclude', exclude);
     }
 
+    if (replacementFeedback && replacementFeedback.trim().length > 0) {
+      params.set('feedback', replacementFeedback.trim());
+    }
+
+    if (rejectedTrackTitle && rejectedTrackTitle.trim().length > 0) {
+      params.set('rejectedTrackTitle', rejectedTrackTitle.trim());
+    }
+
     return `/api/spotify?${params.toString()}`;
   };
 
@@ -136,13 +310,20 @@ export default function Home() {
     }
   };
 
-  const handleRequestReplacement = async (trackId: string, index: number) => {
+  const handleRequestReplacement = async (
+    trackId: string,
+    index: number,
+    replacementFeedback?: string,
+    rejectedTrackTitle?: string
+  ) => {
     if (!selectedMood) return;
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(await buildRecommendationUrl(selectedMood, trackId));
+      const response = await fetch(
+        await buildRecommendationUrl(selectedMood, trackId, replacementFeedback, rejectedTrackTitle)
+      );
       if (!response.ok) throw new Error('Failed to fetch replacement recommendations');
       const data: RecommendationResponse = await response.json();
       setTracks(data.tracks);
@@ -156,11 +337,49 @@ export default function Home() {
     }
   };
 
+  const handleRedoRecommendations = async () => {
+    if (!selectedMood) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(await buildRecommendationUrl(selectedMood));
+      if (!response.ok) {
+        throw new Error('Failed to refresh recommendations');
+      }
+
+      const data: RecommendationResponse = await response.json();
+      setTracks(data.tracks);
+      setCurrentTrackIndex(0);
+      setContextSummary(data.context?.summary ?? null);
+      updateMoodHistory(selectedMood, data.tracks);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while refreshing recommendations');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="app-shell">
       <div className="app-card">
         <header className="app-header">
-          <h1>Mood Music Recommender</h1>
+          <div className="title-row">
+            <h1>Mood Music Recommender</h1>
+            {(
+              <span className="header-context-pill">
+                <WeatherIcon condition={headerWeather?.condition} />
+                <span>{headerWeather?.condition ?? 'Weather'}</span>
+                {typeof headerWeather?.temperatureC === 'number'
+                  ? <span>{Math.round(headerWeather.temperatureC)}C</span>
+                  : null}
+                <span className="context-sep">|</span>
+                <TimeIcon />
+                <span>{clockLabel}</span>
+              </span>
+            )}
+          </div>
           <p>Select your mood and discover the perfect soundtrack</p>
         </header>
 
@@ -174,7 +393,7 @@ export default function Home() {
             </div>
           ) : (
             <div>
-              <div className="text-center mb-6">
+              <div className="mb-6 flex flex-wrap items-center justify-center gap-3">
                 <button
                   onClick={() => {
                     setSelectedMood(null);
@@ -184,6 +403,14 @@ export default function Home() {
                   className="control-btn"
                 >
                   ← Change Mood
+                </button>
+
+                <button
+                  onClick={handleRedoRecommendations}
+                  className="control-btn"
+                  disabled={loading}
+                >
+                  Redo Songs
                 </button>
               </div>
 

@@ -1,16 +1,22 @@
-   'use client';
+  'use client';
 
+  import { useEffect, useState } from 'react';
 import { Track } from '../../types';
 
 interface MusicPlayerProps {
   tracks: Track[];
   currentTrackIndex: number;
   onTrackChange: (index: number) => void;
-  onRequestReplacement?: (trackId: string, index: number) => void;
+    onRequestReplacement?: (trackId: string, index: number, feedback?: string, trackTitle?: string) => void;
 }
 
 export default function MusicPlayer({ tracks, currentTrackIndex, onTrackChange, onRequestReplacement }: MusicPlayerProps) {
   const currentTrack = tracks[currentTrackIndex];
+    const [replacementFeedback, setReplacementFeedback] = useState('');
+
+    useEffect(() => {
+      setReplacementFeedback('');
+    }, [currentTrack?.id]);
 
   if (!currentTrack) {
     return (
@@ -97,44 +103,62 @@ export default function MusicPlayer({ tracks, currentTrackIndex, onTrackChange, 
         </div>
       )}
 
-      <div className="flex justify-between items-center">
-        <button
-          onClick={() => {
-            const prevIndex = currentTrackIndex === 0 ? tracks.length - 1 : currentTrackIndex - 1;
-            onTrackChange(prevIndex);
-          }}
-          className="control-btn music-player-action"
-        >
-          Previous
-        </button>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const prevIndex = currentTrackIndex === 0 ? tracks.length - 1 : currentTrackIndex - 1;
+                onTrackChange(prevIndex);
+              }}
+              className="control-btn music-player-action"
+            >
+              Previous
+            </button>
 
-        <button
-          onClick={() => {
-            // Ask parent to fetch/replace recommendations for this track
-            if (typeof onRequestReplacement === 'function') {
-              onRequestReplacement(currentTrack.id, currentTrackIndex);
-            }
-          }}
-          className="control-btn music-player-action"
-          aria-label="Not the right song - get new recommendations"
-          title="Not the right song"
-        >
-          Not right song
-        </button>
+            <button
+              onClick={() => {
+                const nextIndex = (currentTrackIndex + 1) % tracks.length;
+                onTrackChange(nextIndex);
+              }}
+              className="control-btn music-player-action"
+            >
+              Next
+            </button>
+          </div>
 
-        <span className="text-sm text-gray-500">
-          {currentTrackIndex + 1} of {tracks.length}
-        </span>
+          <span className="ml-auto text-sm text-gray-500">
+            {currentTrackIndex + 1} of {tracks.length}
+          </span>
+        </div>
 
-        <button
-          onClick={() => {
-            const nextIndex = (currentTrackIndex + 1) % tracks.length;
-            onTrackChange(nextIndex);
-          }}
-          className="control-btn music-player-action"
-        >
-          Next
-        </button>
+        <div className="flex w-full items-center gap-2">
+          <input
+            type="text"
+            value={replacementFeedback}
+            onChange={(event) => setReplacementFeedback(event.target.value)}
+            placeholder="e.g. too sad, more energy"
+            className="w-full rounded-md border px-3 py-2 text-sm"
+            aria-label="Explain why this song is not the right fit"
+          />
+          <button
+            onClick={() => {
+              if (typeof onRequestReplacement === 'function') {
+                onRequestReplacement(
+                  currentTrack.id,
+                  currentTrackIndex,
+                  replacementFeedback.trim(),
+                  currentTrack.name
+                );
+              }
+            }}
+            className="control-btn music-player-action whitespace-nowrap"
+            aria-label="Not the right song - get new recommendations"
+            title="Not the right song"
+          >
+            Not right song
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-2 max-h-60 overflow-y-auto" role="list" aria-label="Track list">

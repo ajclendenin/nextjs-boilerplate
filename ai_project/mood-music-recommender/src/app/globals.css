@@ -63,6 +63,46 @@ body {
   font-size: clamp(0.95rem, 2.5vw, 1.1rem);
 }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.header-context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(191, 219, 254, 0.45);
+  border-radius: 9999px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: #f8fafc;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.9), rgba(67, 56, 202, 0.88));
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.25);
+  white-space: nowrap;
+}
+
+.context-icon {
+  width: 0.86rem;
+  height: 0.86rem;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.context-icon-weather {
+  width: 0.98rem;
+  height: 0.98rem;
+}
+
+.context-sep {
+  color: #bfdbfe;
+  margin: 0 0.05rem;
+}
+
 .mood-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

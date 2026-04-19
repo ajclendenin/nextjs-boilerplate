@@ -205,9 +205,18 @@ export function buildMoodContext(
   const timeOfDay = getTimeOfDay(localHour);
 
   if (!weather) {
+    const timeBias =
+      timeOfDay === 'morning'
+        ? 'fresh'
+        : timeOfDay === 'afternoon'
+          ? 'uplifting'
+          : timeOfDay === 'evening'
+            ? 'warm'
+            : 'calm';
+
     return {
-      effectiveMood: trimmedMood,
-      summary: `Using your mood input directly: ${trimmedMood}.`,
+      effectiveMood: `${trimmedMood} with a ${timeBias} ${timeOfDay} vibe`,
+      summary: `Using your mood "${trimmedMood}" with ${timeOfDay} time-of-day context.`,
       timeOfDay,
     };
   }
