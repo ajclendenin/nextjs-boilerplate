@@ -184,6 +184,7 @@ export default function Home() {
   const [clockLabel, setClockLabel] = useState(() =>
     new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   );
+  const [isAutoLoadComplete, setIsAutoLoadComplete] = useState(false);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -196,6 +197,7 @@ export default function Home() {
   useEffect(() => {
     const loadHeaderWeather = async () => {
       const context = await getListenerContext();
+      setListenerContext(context);
 
       if (!context.lat || !context.lon) {
         setHeaderWeather(null);
@@ -218,6 +220,78 @@ export default function Home() {
 
     void loadHeaderWeather();
   }, []);
+
+  useEffect(() => {
+    const autoLoadRecommendations = async () => {
+      if (selectedMood || isAutoLoadComplete) return;
+
+      setLoading(true);
+
+      try {
+        // Get listener context if not already set
+        const context = listenerContext || (await getListenerContext());
+        if (listenerContext === null) {
+          setListenerContext(context);
+        }
+
+        // Get weather data
+        let weatherData = headerWeather;
+        if (!weatherData && context.lat && context.lon) {
+          try {
+            const response = await fetch(`/api/context?lat=${context.lat}&lon=${context.lon}`);
+            if (response.ok) {
+              const data: HeaderContextResponse = await response.json();
+              weatherData = data.weather ?? null;
+            }
+          } catch {
+            // Weather fetch failed, continue without it
+          }
+        }
+
+        // Import and use the inference function
+        const { inferMoodFromWeather } = await import('../lib/weatherContext');
+        const weatherSnapshot = (weatherData && weatherData.condition)
+          ? { 
+              condition: weatherData.condition, 
+              temperatureC: weatherData.temperatureC ?? null, 
+              summary: `${weatherData.condition}${typeof weatherData.temperatureC === 'number' ? `, ${weatherData.temperatureC}C` : ''}`
+            }
+          : null;
+        
+        const inferredMood = inferMoodFromWeather(weatherSnapshot, parseInt(context.localHour, 10)) as Mood;
+
+        // Fetch recommendations with inferred mood
+        const params = new URLSearchParams({
+          mood: inferredMood,
+          localHour: context.localHour,
+          requestSeed: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        });
+
+        if (context.lat && context.lon) {
+          params.set('lat', context.lat);
+          params.set('lon', context.lon);
+        }
+
+        const response = await fetch(`/api/spotify?${params.toString()}`);
+        if (response.ok) {
+          const data: RecommendationResponse = await response.json();
+          setTracks(data.tracks);
+          setCurrentTrackIndex(0);
+          setContextSummary(data.context?.summary ?? null);
+          setSelectedMood(inferredMood);
+          updateMoodHistory(inferredMood, data.tracks);
+        }
+      } catch (err) {
+        console.error('Auto-load recommendations failed:', err);
+        // Don't set error state to avoid showing error message on initial load
+      } finally {
+        setLoading(false);
+        setIsAutoLoadComplete(true);
+      }
+    };
+
+    void autoLoadRecommendations();
+  }, [isAutoLoadComplete, selectedMood, listenerContext, headerWeather]);
 
   const getMoodHistoryEntry = (mood: Mood) => {
     return moodHistory[mood.trim().toLowerCase()] ?? { ids: [], titles: [] };
@@ -242,12 +316,16 @@ export default function Home() {
     mood: Mood,
     exclude?: string,
     replacementFeedback?: string,
-    rejectedTrackTitle?: string
+    rejectedTrackTitle?: string,
+    options?: {
+      includeHistory?: boolean;
+    }
   ) => {
     const resolvedContext = listenerContext
       ? { ...listenerContext, localHour: getCurrentHour() }
       : await getListenerContext();
-    const historyEntry = getMoodHistoryEntry(mood);
+    const includeHistory = options?.includeHistory ?? true;
+    const historyEntry = includeHistory ? getMoodHistoryEntry(mood) : { ids: [], titles: [] };
 
     setListenerContext(resolvedContext);
 
@@ -322,7 +400,13 @@ export default function Home() {
 
     try {
       const response = await fetch(
-        await buildRecommendationUrl(selectedMood, trackId, replacementFeedback, rejectedTrackTitle)
+        await buildRecommendationUrl(
+          selectedMood,
+          trackId,
+          replacementFeedback,
+          rejectedTrackTitle,
+          { includeHistory: false }
+        )
       );
       if (!response.ok) throw new Error('Failed to fetch replacement recommendations');
       const data: RecommendationResponse = await response.json();
@@ -384,14 +468,19 @@ export default function Home() {
         </header>
 
         <main>
-          {!selectedMood ? (
+          {!selectedMood && !loading ? (
             <div>
               <h2 className="text-2xl font-semibold text-center mb-6">
                 How are you feeling today?
               </h2>
               <MoodSelector onMoodSelect={handleMoodSelect} />
             </div>
-          ) : (
+          ) : loading && !selectedMood ? (
+            <div className="text-center py-8">
+              <p className="text-gray-600 mb-4">Loading personalized recommendations based on your weather and time of day...</p>
+              <div className="flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
+            </div>
+          ) : selectedMood ? (
             <div>
               <div className="mb-6 flex flex-wrap items-center justify-center gap-3">
                 <button
@@ -450,15 +539,21 @@ export default function Home() {
               )}
 
               {!loading && !error && tracks.length > 0 && (
-                <MusicPlayer
-                  tracks={tracks}
-                  currentTrackIndex={currentTrackIndex}
-                  onTrackChange={setCurrentTrackIndex}
-                  onRequestReplacement={handleRequestReplacement}
-                />
+                <>
+                  <MusicPlayer
+                    tracks={tracks}
+                    currentTrackIndex={currentTrackIndex}
+                    onTrackChange={setCurrentTrackIndex}
+                    onRequestReplacement={handleRequestReplacement}
+                  />
+                  <div className="mt-8 pt-6 border-t">
+                    <h3 className="text-lg font-semibold mb-4">Or try a different mood:</h3>
+                    <MoodSelector onMoodSelect={handleMoodSelect} selectedMood={selectedMood} />
+                  </div>
+                </>
               )}
             </div>
-          )}
+          ) : null}
         </main>
       </div>
     </div>

@@ -103,7 +103,7 @@ function buildWeatherRequestUrl(latitude: number, longitude: number): string | n
     .replace('{lat}', encodeURIComponent(String(latitude)))
     .replace('{lon}', encodeURIComponent(String(longitude)));
 }
-
+//decides how weather influences mood
 function inferWeatherBias(weather: WeatherSnapshot, timeOfDay: string): string {
   const condition = weather.condition.toLowerCase();
 
@@ -195,7 +195,7 @@ export async function fetchCurrentWeather(
     return null;
   }
 }
-
+// considers normalized mood
 export function buildMoodContext(
   userMood: string,
   weather: WeatherSnapshot | null,
@@ -229,6 +229,23 @@ export function buildMoodContext(
     summary: `Using your mood "${trimmedMood}" with ${weather.summary.toLowerCase()} during the ${timeOfDay}.`,
     timeOfDay,
   };
+}
+
+export function inferMoodFromWeather(
+  weather: WeatherSnapshot | null,
+  localHour?: number | null
+): string {
+  if (!weather) {
+    const timeOfDay = getTimeOfDay(localHour);
+    if (timeOfDay === 'morning') return 'energized morning';
+    if (timeOfDay === 'afternoon') return 'uplifting afternoon';
+    if (timeOfDay === 'evening') return 'warm evening';
+    return 'calm night';
+  }
+
+  const weatherBias = inferWeatherBias(weather, getTimeOfDay(localHour));
+  const timeOfDay = getTimeOfDay(localHour);
+  return `${weatherBias} ${timeOfDay}`;
 }
 
 export function getContextAwareSearchQueries(

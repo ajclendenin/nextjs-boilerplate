@@ -10,6 +10,7 @@ import {
 const RAPID_API_KEY = process.env.RAPID_API_KEY;
 const RAPID_API_HOST = 'spotify23.p.rapidapi.com';
 
+// synonym lookup tabel
 const canonicalMoodSynonyms: Record<string, string[]> = {
   happy: ['happy', 'joyful', 'cheerful', 'bright', 'upbeat', 'optimistic', 'glad'],
   sad: ['sad', 'down', 'blue', 'upset', 'mellow', 'depressed', 'gloomy', 'heartbroken', 'low'],
@@ -185,7 +186,7 @@ function parseCoordinate(value: string | null): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
-
+/// ensures sysyms return same mood
 function normalizeMoodInput(mood: string): string {
   const normalizedInput = normalizeText(mood);
 
