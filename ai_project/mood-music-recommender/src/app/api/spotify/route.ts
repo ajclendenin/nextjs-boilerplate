@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Mood } from '../../../types';
-import { generateSongSuggestions, SongSuggestion } from '../../../lib/aiRecommendations';
+import { generateSongSuggestionsWithSource, SongSuggestion } from '../../../lib/aiRecommendations';
 import {
   buildMoodContext,
   fetchCurrentWeather,
@@ -133,7 +133,7 @@ function shouldFilterTrackTitle(title: string, mood: string): boolean {
 
   return false;
 }
-
+// identify varient releases to filter out
 function isVariantReleaseTitle(title: string): boolean {
   const loweredTitle = title.toLowerCase();
 
@@ -185,6 +185,10 @@ function parseCoordinate(value: string | null): number | null {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 /// ensures sysyms return same mood
 function normalizeMoodInput(mood: string): string {
@@ -252,20 +256,24 @@ export async function GET(request: NextRequest) {
 
     // Get song suggestions: re-prompt Claude every time for fresh recommendations
     let songSuggestions: SongSuggestion[] = [];
+    let recommendationSource: 'ai' | 'fallback' = 'fallback';
     try {
-      songSuggestions = await generateSongSuggestions(moodContext.effectiveMood as Mood, {
+      const recommendationResult = await generateSongSuggestionsWithSource(moodContext.effectiveMood as Mood, {
         isAlternative: !!exclude || excludeIds.length > 0 || feedback.length > 0,
         excludedTitles: excludeTitles,
         feedback,
         rejectedTrackTitle,
         requestSeed,
       });
+      songSuggestions = recommendationResult.songs;
+      recommendationSource = recommendationResult.source;
     } catch (error) {
       console.error('Failed to generate AI suggestions:', error);
       songSuggestions = [];
+      recommendationSource = 'fallback';
     }
 
-    console.log('Generated song suggestions:', songSuggestions);
+    console.log(`Generated song suggestions (${recommendationSource}):`, songSuggestions);
 
     const fallbackQueries = (() => {
       const fallback = getFallbackSearchQueries(normalizedMood);
@@ -285,12 +293,16 @@ export async function GET(request: NextRequest) {
       ? songSuggestions.map((song) => `${song.title} ${song.artist}`)
       : fallbackQueries;
 
-    console.log('Using generated search queries:', searchQueries);
+    const cappedSearchQueries = searchQueries.slice(0, 4);
+
+    console.log('Using generated search queries:', cappedSearchQueries);
 
     // Try multiple searches to get diverse tracks
     let allTracks: any[] = [];
+    let hadRateLimitError = false;
+    let consecutiveSearchFailures = 0;
 
-    for (const query of searchQueries) {
+    for (const query of cappedSearchQueries) {
       if (allTracks.length >= 20) break;
       
       console.log(`Searching for: ${query}`);
@@ -315,12 +327,34 @@ export async function GET(request: NextRequest) {
           const tracks = data.tracks?.items || [];
           console.log(`Found ${tracks.length} tracks for "${query}"`);
           allTracks = allTracks.concat(tracks);
+          consecutiveSearchFailures = 0;
         } else {
           const errorText = await response.text();
           console.error(`Error response for "${query}":`, errorText);
+
+          if (response.status === 429 || /rate limit|too many requests|quota/i.test(errorText)) {
+            hadRateLimitError = true;
+          }
+
+          consecutiveSearchFailures += 1;
+
+          if (hadRateLimitError && consecutiveSearchFailures >= 2) {
+            console.warn('Stopping Spotify search loop early due to repeated rate limiting.');
+            break;
+          }
         }
       } catch (e) {
         console.error(`Error fetching for query "${query}":`, e);
+        consecutiveSearchFailures += 1;
+
+        if (consecutiveSearchFailures >= 2) {
+          console.warn('Stopping Spotify search loop early due to repeated request failures.');
+          break;
+        }
+      }
+
+      if (allTracks.length < 20) {
+        await delay(250);
       }
     }
 
@@ -401,6 +435,16 @@ export async function GET(request: NextRequest) {
     console.log('Normalized tracks count:', normalizedTracks.length);
 
     if (normalizedTracks.length === 0) {
+      if (hadRateLimitError) {
+        return NextResponse.json(
+          {
+            error:
+              'Spotify API rate limit reached. Please wait a moment and try again, or upgrade your API plan limits.',
+          },
+          { status: 429 }
+        );
+      }
+
       return NextResponse.json(
         {
           error: 'No tracks were found for this mood. Please try a different mood or check your Spotify API key.',
@@ -423,9 +467,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       tracks: filteredTracks.slice(0, 10),
+      recommendationSource,
       context: {
         requestedMood: mood,
         interpretedMood: normalizedMood,
+        recommendationSource,
         effectiveMood: moodContext.effectiveMood,
         timeOfDay: moodContext.timeOfDay,
         summary: feedback.length > 0

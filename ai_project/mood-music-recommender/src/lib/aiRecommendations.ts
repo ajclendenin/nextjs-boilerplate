@@ -6,6 +6,8 @@ export interface SongSuggestion {
   artist: string;
 }
 
+export type RecommendationSource = 'ai' | 'fallback';
+
 export interface SongSuggestionOptions {
   isAlternative?: boolean;
   excludedTitles?: string[];
@@ -90,6 +92,28 @@ const curatedMoodSuggestions: Record<string, SongSuggestion[]> = {
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+
+function getAnthropicModelCandidates(): string[] {
+  const fromEnv = (process.env.ANTHROPIC_MODEL_CANDIDATES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const defaults = [
+    ANTHROPIC_MODEL,
+    'claude-sonnet-4-6',
+    'claude-opus-4-7',
+    'claude-haiku-4-5-20251001',
+    'claude-sonnet-4-5-20250929',
+    'claude-3-5-sonnet-20240620',
+    'claude-3-5-haiku-20241022',
+    'claude-3-haiku-20240307',
+  ];
+
+  return Array.from(new Set([...fromEnv, ...defaults]));
+}
 
 function normalizeText(value: string): string {
   return value
@@ -213,6 +237,19 @@ function extractTextFromMessageContent(content: any): string {
     return content;
   }
 
+  if (content && typeof content === 'object') {
+    if (typeof content.text === 'string') {
+      return content.text;
+    }
+
+    if (Array.isArray(content.content)) {
+      return content.content
+        .map((block: any) => (typeof block === 'string' ? block : block?.text ?? ''))
+        .filter(Boolean)
+        .join(' ');
+    }
+  }
+
   if (Array.isArray(content)) {
     return content
       .map((block) => {
@@ -232,6 +269,34 @@ function parseAnthropicResponse(message: any): string {
   return Array.isArray(message.content)
     ? message.content.map(extractTextFromMessageContent).join(' ')
     : extractTextFromMessageContent(message.content);
+}
+
+function extractFirstJsonObject(value: string): string | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    return trimmed;
+  }
+
+  const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (codeFenceMatch && codeFenceMatch[1]) {
+    const fenced = codeFenceMatch[1].trim();
+    if (fenced.startsWith('{') && fenced.endsWith('}')) {
+      return fenced;
+    }
+  }
+
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+
+  return null;
 }
 
 async function getAiGeneratedSongSuggestions(
@@ -293,26 +358,51 @@ Examples:
 
 Do not include any explanation or extra text.`;
 
-  let message;
-  try {
-    message = await client.messages.create({
-      model: 'claude-3',
-      max_tokens: 420,
-      temperature: 0.8,
-      system: 'You are a helpful assistant that suggests song titles and artists based on mood.',
-      messages: [
-        { role: 'user', content: prompt }
-      ]
-    });
-  } catch (error) {
-    console.warn('Anthropic API request failed:', error);
+  let message: any = null;
+  let lastError: any = null;
+
+  for (const model of getAnthropicModelCandidates()) {
+    try {
+      message = await client.messages.create({
+        model,
+        max_tokens: 420,
+        temperature: 0.8,
+        system: 'You are a helpful assistant that suggests song titles and artists based on mood.',
+        messages: [{ role: 'user', content: prompt }],
+      });
+      break;
+    } catch (error: any) {
+      lastError = error;
+      const notFound =
+        error?.status === 404 ||
+        error?.error?.type === 'not_found_error' ||
+        String(error?.message || '').toLowerCase().includes('not_found_error');
+
+      if (notFound) {
+        console.warn(`Anthropic model not available: "${model}". Trying next candidate.`);
+        continue;
+      }
+
+      console.warn(`Anthropic API request failed for model "${model}":`, error);
+      return null;
+    }
+  }
+
+  if (!message) {
+    console.warn('Anthropic API request failed for all configured model candidates:', lastError);
     return null;
   }
 
   const textResponse = parseAnthropicResponse(message);
+  const jsonCandidate = extractFirstJsonObject(textResponse);
+
+  if (!jsonCandidate) {
+    console.warn('Anthropic response did not include a JSON object payload.');
+    return null;
+  }
 
   try {
-    const parsed = JSON.parse(textResponse) as { songs: SongSuggestion[] };
+    const parsed = JSON.parse(jsonCandidate) as { songs: SongSuggestion[] };
 
     if (
       parsed &&
@@ -337,7 +427,7 @@ Do not include any explanation or extra text.`;
 
     console.warn('Anthropic response JSON did not match expected shape:', parsed);
   } catch (error) {
-    console.warn('Failed to parse Anthropic response as JSON:', textResponse, error);
+    console.warn('Failed to parse Anthropic response as JSON:', jsonCandidate, error);
   }
 
   return null;
@@ -347,18 +437,28 @@ export async function generateSongSuggestions(
   mood: Mood,
   options: SongSuggestionOptions = {}
 ): Promise<SongSuggestion[]> {
+  const result = await generateSongSuggestionsWithSource(mood, options);
+  return result.songs;
+}
+
+export async function generateSongSuggestionsWithSource(
+  mood: Mood,
+  options: SongSuggestionOptions = {}
+): Promise<{ songs: SongSuggestion[]; source: RecommendationSource }> {
   const aiSongs = await getAiGeneratedSongSuggestions(mood, options);
 
   if (aiSongs && aiSongs.length > 0) {
-    return aiSongs;
+    return { songs: aiSongs, source: 'ai' };
   }
 
   const excludedTitles = new Set(
     (options.excludedTitles ?? []).map((title) => normalizeText(title))
   );
 
-  return getCuratedFallbackSongSuggestions(mood).filter(
+  const songs = getCuratedFallbackSongSuggestions(mood).filter(
     (song) => !excludedTitles.has(normalizeText(song.title))
   );
+
+  return { songs, source: 'fallback' };
 }
 

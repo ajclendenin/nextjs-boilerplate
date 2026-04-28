@@ -1,6 +1,6 @@
    'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import MoodSelector from './components/MoodSelector';
 import MusicPlayer from './components/MusicPlayer';
 import { Mood, Track } from '../types';
@@ -172,6 +172,8 @@ import { Mood, Track } from '../types';
   }
 
 export default function Home() {
+  const autoLoadInFlightRef = useRef(false);
+  const recommendationsInFlightRef = useRef(false);
   const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
@@ -223,7 +225,9 @@ export default function Home() {
 
   useEffect(() => {
     const autoLoadRecommendations = async () => {
-      if (selectedMood || isAutoLoadComplete) return;
+      if (selectedMood || isAutoLoadComplete || autoLoadInFlightRef.current) return;
+
+      autoLoadInFlightRef.current = true;
 
       setLoading(true);
 
@@ -285,6 +289,7 @@ export default function Home() {
         console.error('Auto-load recommendations failed:', err);
         // Don't set error state to avoid showing error message on initial load
       } finally {
+        autoLoadInFlightRef.current = false;
         setLoading(false);
         setIsAutoLoadComplete(true);
       }
@@ -339,7 +344,7 @@ export default function Home() {
       params.set('lat', resolvedContext.lat);
       params.set('lon', resolvedContext.lon);
     }
-
+//exclude ids and titles from history to avoid repeats, but only if there is a history to exclude - otherwise the API will error when trying to parse empty excludeIds/excludeTitles params. This allows the first recommendation request for a mood to include history (which may be desirable for auto-load) without causing issues. Subsequent requests for the same mood will then exclude the initial tracks as expected.
     if (historyEntry.ids.length > 0) {
       params.set('excludeIds', historyEntry.ids.join(','));
     }
@@ -364,6 +369,9 @@ export default function Home() {
   };
 
   const handleMoodSelect = async (mood: Mood) => {
+    if (recommendationsInFlightRef.current) return;
+    recommendationsInFlightRef.current = true;
+
     setSelectedMood(mood);
     setLoading(true);
     setError(null);
@@ -384,17 +392,20 @@ export default function Home() {
       setTracks([]);
       setContextSummary(null);
     } finally {
+      recommendationsInFlightRef.current = false;
       setLoading(false);
     }
   };
-
+// Handles both track replacement requests and general "redo" requests based on presence of feedback and rejected track title
   const handleRequestReplacement = async (
     trackId: string,
     index: number,
     replacementFeedback?: string,
     rejectedTrackTitle?: string
   ) => {
-    if (!selectedMood) return;
+    if (!selectedMood || recommendationsInFlightRef.current) return;
+    recommendationsInFlightRef.current = true;
+
     setLoading(true);
     setError(null);
 
@@ -417,12 +428,14 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred while fetching replacements');
     } finally {
+      recommendationsInFlightRef.current = false;
       setLoading(false);
     }
   };
 
   const handleRedoRecommendations = async () => {
-    if (!selectedMood) return;
+    if (!selectedMood || recommendationsInFlightRef.current) return;
+    recommendationsInFlightRef.current = true;
 
     setLoading(true);
     setError(null);
@@ -441,6 +454,7 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred while refreshing recommendations');
     } finally {
+      recommendationsInFlightRef.current = false;
       setLoading(false);
     }
   };
